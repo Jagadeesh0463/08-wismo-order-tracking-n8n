@@ -1,0 +1,459 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "2485e324-89a9-40ca-8680-99e8627610f6",
+      "name": "1. Store Event Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-1408, 832]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Orders"
+        },
+        "options": {}
+      },
+      "id": "afc5a728-4919-4e48-a24e-4891638f7717",
+      "name": "1b. Read Orders Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [-1120, 832],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            { "name": "orderId",          "value": "={{ $json[\"ORDER ID\"] }}" },
+            { "name": "customerName",     "value": "={{ $json[\"CUSTOMER NAME\"] }}" },
+            { "name": "email",            "value": "={{ $json[\"EMAIL\"] }}" },
+            { "name": "phone",            "value": "={{ $json[\"PHONE\"] }}" },
+            { "name": "trackingNumber",   "value": "={{ $json[\"TRACKING NUMBER\"] }}" },
+            { "name": "carrier",          "value": "={{ $json[\"CARRIER\"] }}" },
+            { "name": "preferredChannel", "value": "={{ $json[\"PREFERRED CHANNEL\"] }}" },
+            { "name": "rowNumber",        "value": "={{ $json.row_number }}" },
+            { "name": "lastStatus",       "value": "={{ $json[\"LAST STATUS\"] }}" },
+            { "name": "notificationSent", "value": "={{ $json[\"NOTIFICATION SENT\"] }}" }
+          ]
+        },
+        "options": { "dotNotation": true }
+      },
+      "id": "98d9e25f-4e36-42b2-8256-37e1c319d22a",
+      "name": "2. Get Order Details",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [-864, 832]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trackingmore.com/v4/trackings/create",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={\n  \"Tracking-Api-Key\": \"YOUR_TRACKINGMORE_API_KEY\"\n}",
+        "sendBody": true,
+        "specifyBody": "=json",
+        "bodyParameters": { "parameters": [{}] },
+        "jsonBody": "={\n  \"tracking_number\": \"{{$json.trackingNumber}}\",\n  \"courier_code\": \"{{$json.carrier}}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-656, 832],
+      "id": "98ef8561-9d2f-4964-846b-c60449b9d76c",
+      "name": "3a. Create Tracking",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.trackingmore.com/v4/trackings/get",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tracking_numbers",
+              "value": "={{$node[\"2. Get Order Details\"].json[\"trackingNumber\"]}}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={\n  \"Tracking-Api-Key\": \"YOUR_TRACKINGMORE_API_KEY\",\n  \"Content-Type\": \"application/json\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-400, 832],
+      "id": "06adc75b-bd06-42d5-aa5f-a2d49575dae7",
+      "name": "3b. Get Tracking Status",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.meta.code}}",
+              "operation": "equal",
+              "value2": 200
+            }
+          ]
+        }
+      },
+      "id": "bd96251d-3090-4208-96e1-50c2113dfcd4",
+      "name": "4. API Success Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-48, 816]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"status\": \"{{$json.data[0].delivery_status}}\",\n  \"trackingNumber\": \"{{$json.data[0].tracking_number}}\",\n  \"customMessage\": \"{{$json.data[0].delivery_status === 'pending' ? 'Your order has been received and is awaiting carrier updates.' : $json.data[0].delivery_status === 'transit' ? 'Your order is on its way! We will keep you updated.' : $json.data[0].delivery_status === 'delivered' ? 'Great news! Your order has been delivered.' : 'Your shipment requires attention.'}}\",\n  \"channel\": \"{{$node['2. Get Order Details'].json['preferredChannel']}}\",\n  \"destination\": \"{{$node['2. Get Order Details'].json['preferredChannel'] === 'email' ? $node['2. Get Order Details'].json['email'] : $node['2. Get Order Details'].json['phone']}}\",\n  \"customerName\": \"{{$node['2. Get Order Details'].json['customerName']}}\",\n  \"orderId\": \"{{$node['2. Get Order Details'].json['orderId']}}\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [320, 800],
+      "id": "ff396db5-f94d-4e7c-b4a5-c2fc61bca364",
+      "name": "5. Build Notification + Channel Object"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "55a2e764-5bac-4a29-b735-f96e3368202a",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "exception",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [528, 800],
+      "id": "4a717a73-0c47-4102-8a74-1b85bc39a51b",
+      "name": "5b. Exception Check"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "de970068-a4fa-4461-b942-298a35c3614d",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "={{$node[\"2. Get Order Details\"].json[\"lastStatus\"]}}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [864, 816],
+      "id": "5e0399c9-2218-4f75-ad51-3a6c436f743e",
+      "name": "5c. Status Changed?"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict", "version": 3 },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.channel}}",
+                    "rightValue": "email",
+                    "operator": { "type": "string", "operation": "equals" },
+                    "id": "ac806c72-29a1-4c22-ab7d-df13bfa5f0c0"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict", "version": 3 },
+                "conditions": [
+                  {
+                    "id": "32f13bb9-83f5-4dd0-b3be-a83ed8f99a1f",
+                    "leftValue": "={{$json.channel}}",
+                    "rightValue": "whatsapp",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict", "version": 3 },
+                "conditions": [
+                  {
+                    "id": "cea9f526-8551-4a6a-b5b6-ee3083b79a59",
+                    "leftValue": "={{$json.channel}}",
+                    "rightValue": "sms",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [1360, 784],
+      "id": "3ab4c371-1525-4058-a1a3-2e075e256776",
+      "name": "6. Channel Router"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$json.destination}}",
+        "subject": "=Order {{$json.orderId}} Update - {{$json.status}}",
+        "message": "=Hello {{$json.customerName}},\n\nTracking Number: {{$json.trackingNumber}}\n\nCurrent Status: {{$json.status}}\n\n{{$json.customMessage}}\n\nThank you,\nCustomer Support Team",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [1920, 608],
+      "id": "cadf7fd3-fb3a-4e8b-86d2-65370267e861",
+      "name": "7a. Send Email Notification",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v19.0/YOUR_WHATSAPP_PHONE_NUMBER_ID/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_META_ACCESS_TOKEN" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"91{{$json.destination}}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"YOUR_APPROVED_TEMPLATE_NAME\",\n    \"language\": { \"code\": \"en\" },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          { \"type\": \"text\", \"text\": \"{{$json.customerName}}\" },\n          { \"type\": \"text\", \"text\": \"{{$json.orderId}}\" },\n          { \"type\": \"text\", \"text\": \"{{$json.status}}\" },\n          { \"type\": \"text\", \"text\": \"{{$json.trackingNumber}}\" }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1920, 864],
+      "id": "f8325ba1-0890-482f-a6e3-a828d4b3af58",
+      "name": "7b. Send WhatsApp Notification",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://2factor.in/API/R1/Bulk/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"module\": \"TRANS_SMS\",\n  \"apikey\": \"YOUR_2FACTOR_API_KEY\",\n  \"messages\": [\n    {\n      \"smsFrom\": \"YOUR_DLT_SENDER_ID\",\n      \"smsTo\": \"+91{{$json.destination}}\",\n      \"smsText\": \"Hello {{$json.customerName}}, Order {{$json.orderId}} status: {{$json.status}}. Tracking: {{$json.trackingNumber}}. Thank you. - YOUR_BRAND\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1920, 1120],
+      "id": "6a353741-d62e-4369-830d-4e23271e1f9d",
+      "name": "7c. Send SMS Notification",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Orders"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "LAST STATUS":       "={{$node[\"5. Build Notification + Channel Object\"].json[\"status\"]}}",
+            "NOTIFICATION SENT": "Yes",
+            "ORDER ID":          "={{$node[\"5. Build Notification + Channel Object\"].json[\"orderId\"]}}",
+            "LAST NOTIFIED AT":  "={{$now}}"
+          },
+          "matchingColumns": ["ORDER ID"],
+          "schema": [
+            { "id": "ORDER ID",          "displayName": "ORDER ID",          "required": false, "defaultMatch": true,  "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "CUSTOMER NAME",     "displayName": "CUSTOMER NAME",     "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "EMAIL",             "displayName": "EMAIL",             "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "PHONE",             "displayName": "PHONE",             "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "TRACKING NUMBER",   "displayName": "TRACKING NUMBER",   "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "CARRIER",           "displayName": "CARRIER",           "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "PREFERRED CHANNEL", "displayName": "PREFERRED CHANNEL", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "LAST STATUS",       "displayName": "LAST STATUS",       "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "LAST NOTIFIED AT",  "displayName": "LAST NOTIFIED AT",  "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "NOTIFICATION SENT", "displayName": "NOTIFICATION SENT", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2272, 608],
+      "id": "8b7da772-6382-44d2-b4ed-441253eb8851",
+      "name": "8. Update Sheet Status",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_ALERT_EMAIL@gmail.com",
+        "subject": "={{$json.status || \"API Failure\"}} - {{$node[\"2. Get Order Details\"].json[\"orderId\"]}}",
+        "emailType": "text",
+        "message": "=Hello Team,\n\nWISMO Automation detected an issue requiring manual attention.\n\nDate: {{$now}}\n\nOrder ID: {{$json.orderId || $node[\"2. Get Order Details\"].json[\"orderId\"]}}\n\nTracking Number: {{$json.trackingNumber || $node[\"2. Get Order Details\"].json[\"trackingNumber\"]}}\n\nIssue: {{$json.status || \"Tracking API Failure\"}}\n\nPlease investigate.\n\nRegards,\nWISMO Automation",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [864, 512],
+      "id": "5acbdaf0-a59a-429d-9bbc-b11cc77ff815",
+      "name": "9. Escalate To Human",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "1. Store Event Trigger": {
+      "main": [[{ "node": "1b. Read Orders Sheet", "type": "main", "index": 0 }]]
+    },
+    "1b. Read Orders Sheet": {
+      "main": [[{ "node": "2. Get Order Details", "type": "main", "index": 0 }]]
+    },
+    "2. Get Order Details": {
+      "main": [[{ "node": "3a. Create Tracking", "type": "main", "index": 0 }]]
+    },
+    "3a. Create Tracking": {
+      "main": [[{ "node": "3b. Get Tracking Status", "type": "main", "index": 0 }]]
+    },
+    "3b. Get Tracking Status": {
+      "main": [
+        [{ "node": "4. API Success Check", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "4. API Success Check": {
+      "main": [
+        [{ "node": "5. Build Notification + Channel Object", "type": "main", "index": 0 }],
+        [{ "node": "9. Escalate To Human", "type": "main", "index": 0 }]
+      ]
+    },
+    "5. Build Notification + Channel Object": {
+      "main": [[{ "node": "5b. Exception Check", "type": "main", "index": 0 }]]
+    },
+    "5b. Exception Check": {
+      "main": [
+        [{ "node": "9. Escalate To Human", "type": "main", "index": 0 }],
+        [{ "node": "5c. Status Changed?",  "type": "main", "index": 0 }]
+      ]
+    },
+    "5c. Status Changed?": {
+      "main": [
+        [{ "node": "6. Channel Router", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "6. Channel Router": {
+      "main": [
+        [{ "node": "7a. Send Email Notification",    "type": "main", "index": 0 }],
+        [{ "node": "7b. Send WhatsApp Notification", "type": "main", "index": 0 }],
+        [{ "node": "7c. Send SMS Notification",      "type": "main", "index": 0 }]
+      ]
+    },
+    "7a. Send Email Notification": {
+      "main": [[{ "node": "8. Update Sheet Status", "type": "main", "index": 0 }]]
+    },
+    "7b. Send WhatsApp Notification": {
+      "main": [[{ "node": "8. Update Sheet Status", "type": "main", "index": 0 }]]
+    },
+    "7c. Send SMS Notification": {
+      "main": [[{ "node": "8. Update Sheet Status", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
